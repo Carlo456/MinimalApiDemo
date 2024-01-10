@@ -1,6 +1,10 @@
+using AutoMapper;
+using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 using MinimalApiDemo.Data;
 using MinimalApiDemo.Models;
+using MinimalApiDemo.Models.DTO;
+using System.Net;
 
 namespace MinimalApiDemo
 {
@@ -16,6 +20,8 @@ namespace MinimalApiDemo
             // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen();
+            builder.Services.AddAutoMapper(typeof(MappingConfig));
+            builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
             var app = builder.Build();
 
@@ -30,84 +36,130 @@ namespace MinimalApiDemo
 
             app.UseAuthorization();
 
-            var summaries = new[]
-            {
-                "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-            };
-
-            var new_products = new Producto[]
-            {
-
-            };
-
-            app.MapGet("/weatherforecast", (HttpContext httpContext) =>
-            {
-                var forecast = Enumerable.Range(1, 5).Select(index =>
-                    new WeatherForecast
-                    {
-                        Date = DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-                        TemperatureC = Random.Shared.Next(-20, 55),
-                        Summary = summaries[Random.Shared.Next(summaries.Length)]
-                    })
-                    .ToArray();
-                return forecast;
-            })
-            .WithName("GetWeatherForecast")
-            .WithOpenApi();
-
             //Minimal API demo for products
-            app.MapGet("/api/producto", (HttpContext httpContext, ILogger<Program> _logger) => {
+            app.MapGet("/api/product", (HttpContext httpContext, ILogger<Program> _logger) => {
                 _logger.Log(LogLevel.Information, "Getting all products...");
-                return Results.Ok(ProductoStore.product_list);
+                APIResponse response = new();
+                response.Result = ProductStore.product_list;
+                response.Success = true;
+                response.StatusCode = HttpStatusCode.OK;
+                return Results.Ok(response);
             })
-            .WithName("GetProductos")
+            .WithName("GetProducts")
             .WithOpenApi()
-            .Produces<IEnumerable<Producto>>(200);
+            .Produces<APIResponse>(200);
 
-            app.MapGet("/api/producto/{id:int}", (HttpContext httpContext, ILogger<Program> _logger, int id) => {
+            app.MapGet("/api/product/{id:int}", (HttpContext httpContext, ILogger<Program> _logger, int id) => {
                 _logger.Log(LogLevel.Information, "Getting one product...");
-                return Results.Ok(ProductoStore.product_list.FirstOrDefault( product =>  product.Id == id));
+                APIResponse response = new();
+                response.Result = ProductStore.product_list.FirstOrDefault(product => product.Id == id);
+                response.Success = true;
+                response.StatusCode = HttpStatusCode.OK;
+                return Results.Ok(response);
+                //return Results.Ok(ProductoStore.product_list.FirstOrDefault( product =>  product.Id == id));
             })
             .WithName("GetProducto")
-            .WithOpenApi().Produces<Producto>(200);
+            .WithOpenApi().Produces<APIResponse>(200);
 
-            app.MapPost("/api/producto", (HttpContext httpContext, ILogger<Program> _logger, [FromBody] Producto producto) => {
-                if (producto.Id != 0 || string.IsNullOrEmpty(producto.Name))
+            app.MapPost("/api/product", async (HttpContext httpContext, ILogger<Program> _logger, IMapper _mapper, IValidator<ProductCreateDTO> _validation, [FromBody] ProductCreateDTO product_c_dto) => {
+                APIResponse response = new() { Success = false, StatusCode = HttpStatusCode.BadRequest };
+                
+                var validationResult = await _validation.ValidateAsync(product_c_dto);
+
+                if (!validationResult.IsValid)
                 {
-                    return Results.BadRequest($"This product: {producto.ProductoInfo(producto)}\n\tis invalid...");
+                    response.ErrorMessages.Add(validationResult.Errors.FirstOrDefault().ToString());
+                    return Results.BadRequest(response);
                 }
-                if (ProductoStore.product_list.FirstOrDefault(prod => prod.Name.ToLower() == producto.Name.ToLower()) != null)
+                if (ProductStore.product_list.FirstOrDefault(prod => prod.Name.ToLower() == product_c_dto.Name.ToLower()) != null)
                 {
-                    return Results.BadRequest("Product name already exists...");
+                    response.ErrorMessages.Add("Coupon already exists...");
+                    return Results.BadRequest(response);
                 }
-                producto.Id = ProductoStore.product_list.OrderByDescending(prod => prod.Id).FirstOrDefault().Id + 1;
-                ProductoStore.product_list.Add(producto);
+
+                Product product = _mapper.Map<Product>(product_c_dto);
+
+                product.Id = ProductStore.product_list.OrderByDescending(prod => prod.Id).FirstOrDefault().Id + 1;
+                ProductStore.product_list.Add(product);
                 _logger.Log(LogLevel.Information, "Product created successfully");
-                return Results.CreatedAtRoute("GetProducto", new { id = producto.Id }, producto);
+                ProductDTO productDTO = _mapper.Map<ProductDTO>(product);
+
+                response.Result = productDTO;
+                response.Success = true;
+                response.StatusCode = HttpStatusCode.Created;
+                return Results.Ok(response);
+                //return Results.CreatedAtRoute("GetProducto", new { id = product.Id }, productDTO);
                 //return Results.Created($"/api/producto/{producto.Id}", producto);
                 //return Results.Ok(producto);
             })
-            .WithName("PostProducto")
+            .WithName("PostProduct")
             .WithOpenApi()
-            .Accepts<Producto>("application/json")
-            .Produces<Producto>(200).Produces(400);
+            .Accepts<ProductCreateDTO>("application/json")
+            .Produces<APIResponse>(201).Produces(400);
 
-            app.MapPut("/api/producto/{id:int}", (HttpContext httpContext, int id) => {
-                return Results.Ok(ProductoStore.product_list.FirstOrDefault(product => product.Id == id));
+
+            app.MapPut("/api/product/", async (HttpContext httpContext, ILogger<Program> _logger, IMapper _mapper, IValidator<ProductUpdateDTO> _validation, [FromBody] ProductUpdateDTO product_u_dto) => {
+                APIResponse response = new() { Success = false, StatusCode = HttpStatusCode.BadRequest };
+
+                var validationResult = await _validation.ValidateAsync(product_u_dto);
+
+                if (!validationResult.IsValid)
+                {
+                    response.ErrorMessages.Add(validationResult.Errors.FirstOrDefault().ToString());
+                    return Results.BadRequest(response);
+                }
+                if (ProductStore.product_list.FirstOrDefault(prod => prod.Name.ToLower() == product_u_dto.Name.ToLower()) != null)
+                {
+                    response.ErrorMessages.Add("Coupon already exists...");
+                    return Results.BadRequest(response);
+                }
+
+                //get Product to update
+                Product productFromStore = ProductStore.product_list.FirstOrDefault( p =>p.Id == product_u_dto.Id );
+                productFromStore.Name = product_u_dto.Name;
+                productFromStore.Description = product_u_dto.Description;
+                productFromStore.PhotoUrl = product_u_dto.PhotoUrl;
+                productFromStore.Price = product_u_dto.Price;
+                productFromStore.Updated_at = DateTime.Now;
+
+                _logger.Log(LogLevel.Information, "Product updated successfully");
+
+                response.Result = _mapper.Map<ProductDTO>(productFromStore); ;
+                response.Success = true;
+                response.StatusCode = HttpStatusCode.OK;
+                return Results.Ok(response);
             })
-            .WithName("PutProducto")
+            .WithName("PutProduct")
+            .WithOpenApi()
+            .Accepts<ProductUpdateDTO>("application/json")
+            .Produces<APIResponse>(200).Produces(400);
+
+            app.MapDelete("/api/product/{id:int}", (HttpContext httpContext, ILogger<Program> _logger, int id) => {
+                APIResponse response = new() { Success = false, StatusCode = HttpStatusCode.BadRequest };
+
+                //get Product to delete
+                Product productFromStore = ProductStore.product_list.FirstOrDefault(p => p.Id == id);
+                if (productFromStore != null)
+                {
+                    ProductStore.product_list.Remove(productFromStore);
+                    response.Success = true;
+                    response.StatusCode = HttpStatusCode.NoContent;
+                    _logger.Log(LogLevel.Information, "Product deleted successfully");
+                    return Results.Ok(response);
+                }
+                else
+                {
+                    response.ErrorMessages.Add("Invalid Id");
+                    return Results.BadRequest(response);
+                } 
+            })
+            .WithName("DeleteProduct")
             .WithOpenApi();
 
-            app.MapDelete("/api/producto/{id:int}", (HttpContext httpContext, int id) => {
-                return Results.Ok(ProductoStore.product_list.FirstOrDefault(product => product.Id == id));
+            app.MapPatch("/api/product/{id:int}", (HttpContext httpContext, int id) => {
+                return Results.Ok(ProductStore.product_list.FirstOrDefault(product => product.Id == id));
             })
-            .WithName("DeleteProducto")
-            .WithOpenApi();
-
-            app.MapPatch("/api/producto/{id:int}", (HttpContext httpContext, int id) => {
-                return Results.Ok(ProductoStore.product_list.FirstOrDefault(product => product.Id == id));
-            })
-            .WithName("PatchProducto")
+            .WithName("PatchProduct")
             .WithOpenApi();
 
             app.Run();
