@@ -1,13 +1,30 @@
 ﻿using MinimalApiDemo.Models;
+using System.Text.Json;
+
 
 namespace MinimalApiDemo.Data
 {
     public class ProductStore
     {
-        public static List<Product> product_list = new List<Product>
+        public static List<Product> product_list;
+        static ProductStore()
         {
-            new Product{ Id = 1, Name="modelo x", Description="Blue model", PhotoUrl= "https://www.google.com/"  },
-            new Product{ Id = 2, Name="modelo z", Description="Red model", PhotoUrl= "https://www.youtube.com/"  }
-        };
+            LoadProductsFromJSON();
+        }
+        public static void LoadProductsFromJSON()
+        {
+            string json_file_path = "./guitarras.json";
+            try
+            {
+                string jsonData = File.ReadAllText(json_file_path);
+                product_list = JsonSerializer.Deserialize<List<Product>>(jsonData);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"Error loading products from JSON: {e.Message}");
+                product_list = new List<Product>();
+            }
+        }
+
     }
 }
